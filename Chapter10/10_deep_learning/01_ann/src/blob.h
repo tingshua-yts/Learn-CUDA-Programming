@@ -216,10 +216,11 @@ class Blob
     ftype *h_ptr_ = nullptr;
     ftype *d_ptr_ = nullptr;
 
-    int n_ = 1;
-    int c_ = 1;
-    int h_ = 1;
-    int w_ = 1;
+    // 4-D tensor Descriptor
+    int n_ = 1; // batch size
+    int c_ = 1; // the number of feature maps
+    int h_ = 1; // the height of image
+    int w_ = 1; // the weight of image
 };
 
 } // namespace cudl

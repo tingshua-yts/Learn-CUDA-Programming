@@ -41,14 +41,14 @@ int main(int argc, char* argv[])
     model.add_layer(new Activation("relu", CUDNN_ACTIVATION_RELU));
     model.add_layer(new Dense("dense2", 10));
     model.add_layer(new Softmax("softmax"));
-    model.cuda();
+    model.cuda(); // create cublas handle & cudnn handle
 
-    if (load_pretrain)
+    if (load_pretrain) // todo 加载pretrain model的原理
         model.load_pretrain();
-    model.train();
+    model.train(); // set freeze = false
 
     // start Nsight System profile
-    cudaProfilerStart();
+    cudaProfilerStart();  // cudaProfilerStart() is used to start profiling and cudaProfilerStop() is used to stop profiling 
 
     // step 3. train
     int step = 0;
@@ -60,15 +60,20 @@ int main(int argc, char* argv[])
     {
         // nvtx profiling start
         std::string nvtx_message = std::string("step" + std::to_string(step));
-        nvtxRangePushA(nvtx_message.c_str());
 
-        // update shared buffer contents
+        // Markers are used to describe events that occur at a specific time during the execution of an application, 
+        // while ranges detail the time span in which they occur
+        // Use nvtxRangePushA() to create a marker containing an ASCII message
+        nvtxRangePushA(nvtx_message.c_str()); 
+
+        // update shared buffer contents，copy from host memory to device memory
+        // todo: 数据的变换规则
         train_data->to(cuda);
         train_target->to(cuda);
         
         // forward
         model.forward(train_data);
-        tp_count += model.get_accuracy(train_target);
+        tp_count += model.get_accuracy(train_target);// use the last layer(soft max) to calc accuracy
 
         // back-propagation
         model.backward(train_target);

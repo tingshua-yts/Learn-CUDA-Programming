@@ -196,7 +196,7 @@ void Dense::fwd_initialize(Blob<float> *input)
 	// initialize weights and biases
 	if (weights_ == nullptr)
 	{
-		// setup parameter size information
+		// setup parameter size information 
 		input_size_  = input->c() * input->h() * input->w();
 		
 		// initialize weight, bias, and output
@@ -244,26 +244,40 @@ void Dense::fwd_initialize(Blob<float> *input)
 
 Blob<float> *Dense::forward(Blob<float> *input)
 {
-	// output = weights^T * input (without biases)
+	// done 如何解决的host memory和cublas memory计算时不一致的问题
+	// 初步从代码分析，input的内存是从file中读取的，因此是按照host memory进行构建的
+	// output = weights^T * input (without biases) ； 本质是利用了C^T=B^T * A^T来进行计算的
 	checkCublasErrors(
 		cublasSgemm(cuda_->cublas(),
-			CUBLAS_OP_T, CUBLAS_OP_N, 
-			output_size_, batch_size_, input_size_,
+			CUBLAS_OP_T, 
+			CUBLAS_OP_N, 
+			output_size_, // done 为什么是ouput_size,同weight的创建时不一致(看错了，是一致的)
+			batch_size_,
+			input_size_,
 			&cuda_->one,  
-			weights_->cuda(), input_size_, 
-			input_->cuda(), input_size_,
-			&cuda_->zero, 
+			weights_->cuda(), // done 为什么是weights^T*input的形式进行计算 ,是因为weight是通过[output_size, input_size]来表示的 
+			input_size_, 
+			input_->cuda(), 
+			input_size_,
+			&cuda_->zero, // 这里是0，因此仅作为output
 			output_->cuda(),  output_size_));
 
 	// output += biases * d_one_vec^T
 	checkCublasErrors(cublasSgemm(cuda_->cublas(),
-					CUBLAS_OP_N, CUBLAS_OP_N, 
-					output_size_, batch_size_, 1,
+					CUBLAS_OP_N, 
+					CUBLAS_OP_N, // todo 怀疑这里写错了，和上面的comment不一致
+					output_size_,
+					batch_size_,
+					1,
 					&cuda_->one, 
-					biases_->cuda(), output_size_, 
-					d_one_vec, 1, 
+					biases_->cuda(),
+					output_size_, 
+					d_one_vec, // done d_one_vec用来将bias满足batch size的运算
+					1, 
 					&cuda_->one, 
-					output_->cuda(), output_size_));
+					output_->cuda(), 
+					output_size_));
+
 
 #if (DEBUG_DENSE & 0x01)
 	input_->print(  name_ + "::input",  true);
@@ -279,6 +293,7 @@ void Dense::bwd_initialize(Blob<float> *grad_output)
 {
 	if (grad_weights_ == nullptr)
 	{
+		// done grad的matrix大小是如何确定的；因为每个weights_^i都应该有个对应的grad_weights_^i, 因此weights_和grad_weights_的shape应该是相同的
 		grad_weights_ = new Blob<float>(weights_->shape());
 		grad_biases_  = new Blob<float>(biases_->shape());
 	}
@@ -297,26 +312,37 @@ void Dense::bwd_initialize(Blob<float> *grad_output)
 Blob<float> *Dense::backward(Blob<float> *grad_output)
 {
 	// db = (dy) * d_one_vec
+	// done （根据矩阵计算梯度公式可以得到上面的公式）
 	cublasSgemv(cuda_->cublas(),
 			CUBLAS_OP_N,
-			output_size_, batch_size_,
+			output_size_,
+			batch_size_,
 			&cuda_->one,
 			grad_output_->cuda(), output_size_,
 			d_one_vec, 1,
 			&cuda_->zero,
-			grad_biases_->cuda(), 1);
+			grad_biases_->cuda(),
+			1);
 
 	// dw = x * (dy)^T
+	// done 计算顺序是如何决定的 （根据矩阵计算梯度公式可以得到上面的公式）
 	cublasSgemm(cuda_->cublas(),
-		CUBLAS_OP_N, CUBLAS_OP_T,
-		input_size_, output_size_, batch_size_,
+		CUBLAS_OP_N, 
+		CUBLAS_OP_T,
+		input_size_,
+		output_size_, 
+		batch_size_,
 		&cuda_->one,
-		input_->cuda(),        input_size_,
-		grad_output_->cuda(),  output_size_,
+		input_->cuda(),     
+		input_size_,
+		grad_output_->cuda(), 
+		output_size_,
 		&cuda_->zero,
-		grad_weights_->cuda(), input_size_);
+		grad_weights_->cuda(),
+		input_size_);
 
-	// dx = W * dy
+	// dx = W * dy 
+	// done 为什么要求dx（根据矩阵计算公式可以叨叨上面的公式）
 	if (!gradient_stop_)
 		cublasSgemm(cuda_->cublas(),
 			CUBLAS_OP_N, CUBLAS_OP_N,
